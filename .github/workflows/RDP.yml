@@ -56,7 +56,7 @@ jobs:
         run: |
           Write-Host "Installing All Apps..."
           
-          # --- 1. INSTALL ESSENTIALS (RESTORED ALL APPS) ---
+          # --- 1. INSTALL ESSENTIALS ---
           choco install qres -y --no-progress
           choco install vb-cable -y --no-progress --ignore-checksums
           choco install winrar -y --no-progress
@@ -66,9 +66,8 @@ jobs:
           choco install ffmpeg -y --no-progress
           choco install captura -y --no-progress
           
-          # --- 2. DISCORD DIRECT DOWNLOAD (FIXED) ---
+          # --- 2. DISCORD DIRECT DOWNLOAD ---
           Write-Host "Downloading Discord..."
-          # Hardcoded Link to fix the 'Invalid URI' error
           Invoke-WebRequest -Uri "https://discord.com/api/download?platform=win" -OutFile "DiscordSetup.exe"
           
           Write-Host "Installing Discord..."
@@ -87,7 +86,7 @@ jobs:
           $CapLoc = "C:\Users\runneradmin\AppData\Local\Captura"
           if (Test-Path $CapLoc) { Copy-Item -Path $CapLoc -Destination "C:\Captura" -Recurse -Force }
 
-          # --- 4. SHORTCUTS (LAG FIX) ---
+          # --- 4. SHORTCUTS ---
           $WshShell = New-Object -comObject WScript.Shell
           
           # Discord (Extreme Performance Flags)
@@ -127,7 +126,7 @@ jobs:
           $BraveLnk.Save()
           
           # --- 5. RESOLUTION SCRIPT ---
-          Set-Content -Path "C:\Users\Public\Desktop\Force_720p.bat" -Value "QRes.exe /x:1280 /y:720"
+          Set-Content -Path "C:\Users\Public\Desktop\Force_720p.bat" -Value "qres /x:1280 /y:720"
           
           Write-Host "Install Complete."
 
@@ -158,8 +157,8 @@ jobs:
           Write-Host "Password: $(echo $env:RDP_CREDS)"
           Write-Host "==================`n"
 
-          # Force Resolution once on startup
-          & "C:\ProgramData\chocolatey\bin\QRes.exe" /x:1280 /y:720
+          # Force Resolution (Fixed Path Issue)
+          qres /x:1280 /y:720
 
           # Active Mouse Fix Loop
           Write-Host "Starting Priority Manager..."
