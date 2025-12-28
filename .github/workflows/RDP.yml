@@ -1,4 +1,4 @@
-name: RDP (Bore Stable + Apps + Discord Lag Fix + Auto-Latest)
+name: RDP (Ultimate: Bore + Apps + Discord + Mouse/CPU Fixes)
 
 on:
   workflow_dispatch:
@@ -9,27 +9,36 @@ jobs:
     timeout-minutes: 3600
 
     steps:
-      - name: Configure Core RDP Settings
+      - name: Configure RDP & Performance Settings
         run: |
-          # --- 1. AUDIO & SESSION KEEPALIVE ---
+          # --- 1. MOUSE & VISUAL FIXES (Restored) ---
+          # Disable Mouse Shadows & Pointer Effects to stop input lag
+          Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name "UserPreferencesMask" -Type Binary -Value ([byte[]](0x90,0x12,0x03,0x80,0x10,0x00,0x00,0x00)) -Force
+          Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name "MenuShowDelay" -Value 0 -Force
+          Set-ItemProperty -Path 'HKCU:\Control Panel\Mouse' -Name "MouseHoverTime" -Value 0 -Force
+          
+          # Disable Visual Effects (Frees up CPU)
+          Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects' -Name "VisualFXSetting" -Value 2 -Force
+
+          # --- 2. NETWORK OPTIMIZATION (Restored) ---
+          # Disable Network Throttling so RDP packets don't get stuck
+          Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile' -Name "NetworkThrottlingIndex" -Value 0xffffffff -Force
+
+          # --- 3. AUDIO & SESSION SETTINGS ---
           Set-Service -Name Audiosrv -StartupType Automatic
           Start-Service -Name Audiosrv
           Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -Name "fDisableAudioCapture" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -Name "MaxDisconnectionTime" -Value 0 -Force
-          
-          # --- 2. PERFORMANCE: Disable Visual Effects & Animations ---
-          Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects' -Name "VisualFXSetting" -Value 2 -Force
 
-          # --- 3. DISABLE SERVER MANAGER POPUP (Speed up Login) ---
+          # --- 4. DISABLE SERVER MANAGER ---
           Get-ScheduledTask -TaskName ServerManager | Disable-ScheduledTask
           Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\ServerManager' -Name DoNotOpenServerManagerAtLogon -Value 1 -Force
 
-          # --- 4. RDP SECURITY SETTINGS ---
+          # --- 5. RDP SECURITY & FIREWALL ---
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
 
-          # --- 5. FIREWALL ---
           netsh advfirewall firewall delete rule name="RDP-Tailscale"
           netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
 
@@ -44,7 +53,6 @@ jobs:
               exit 1
           }
 
-          # Set User Password
           $password = $env:MY_SECRET_PASS
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
           
@@ -52,19 +60,13 @@ jobs:
           Add-LocalGroupMember -Group "Administrators" -Member "RDP"
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
           
-          # Log success but hide password
           echo "RDP_CREDS=User: RDP | Password: (Hidden)" >> $env:GITHUB_ENV
-          
-          if (-not (Get-LocalUser -Name "RDP")) {
-              Write-Error "User creation failed"
-              exit 1
-          }
 
       - name: Install Apps & Configure Shortcuts
         run: |
           Write-Host "Installing Apps..."
           
-          # --- 1. CHOCOLATEY INSTALLS (Standard Apps) ---
+          # --- 1. CHOCOLATEY INSTALLS ---
           choco install vb-cable -y --no-progress --ignore-checksums
           choco install winrar -y --no-progress
           choco install googlechrome -y --no-progress --ignore-checksums
@@ -73,33 +75,24 @@ jobs:
           choco install ffmpeg -y --no-progress
           choco install captura -y --no-progress
           
-          # --- 2. DISCORD AUTO-INSTALL (LATEST VERSION) ---
+          # --- 2. DISCORD AUTO-INSTALL (LATEST) ---
           Write-Host "Downloading latest Discord..."
           $DiscordUrl = "https://discord.com/api/download?platform=win"
           Invoke-WebRequest -Uri $DiscordUrl -OutFile "DiscordSetup.exe"
           
-          Write-Host "Installing Discord (Background)..."
-          # Run installer without waiting (prevents hanging)
+          Write-Host "Installing Discord..."
           Start-Process -FilePath ".\DiscordSetup.exe"
-          
-          # Wait 35 seconds for install to finish
           Start-Sleep -Seconds 35
-          
-          # Kill Discord so script can continue (it auto-opens)
           Stop-Process -Name "Discord" -Force -ErrorAction SilentlyContinue
           Stop-Process -Name "Update" -Force -ErrorAction SilentlyContinue
 
           # --- 3. MOVE & FIX FOLDERS ---
-          
-          # Fix Brave
           $BraveAdmin = "C:\Users\runneradmin\AppData\Local\BraveSoftware"
           if (Test-Path $BraveAdmin) { Copy-Item -Path $BraveAdmin -Destination "C:\" -Recurse -Force }
 
-          # Fix Discord (Move to Public C:\)
           $DiscordAdmin = "C:\Users\runneradmin\AppData\Local\Discord"
           if (Test-Path $DiscordAdmin) { Copy-Item -Path $DiscordAdmin -Destination "C:\" -Recurse -Force }
           
-          # Fix Captura
           $CapLoc1 = "C:\Users\runneradmin\AppData\Local\Captura"
           $CapLoc2 = "C:\ProgramData\chocolatey\lib\captura\tools"
           if (Test-Path $CapLoc1) {
@@ -117,17 +110,17 @@ jobs:
           $BraveLnk.TargetPath = "C:\BraveSoftware\Brave-Browser\Application\brave.exe"
           $BraveLnk.Save()
 
-          # Discord (With Performance Flags)
+          # Discord (With NO-LAG Flags)
           $DiscordExe = Get-ChildItem -Path "C:\Discord" -Recurse -Filter "Discord.exe" | Select-Object -First 1
           if ($DiscordExe) {
               $DiscordLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\Discord.lnk")
               $DiscordLnk.TargetPath = $DiscordExe.FullName
-              # These flags STOP the lag when streaming:
-              $DiscordLnk.Arguments = "--disable-gpu --disable-gpu-compositing --disable-smooth-scrolling"
+              # CRITICAL: These flags are required for smooth streaming
+              $DiscordLnk.Arguments = "--disable-gpu --disable-gpu-compositing --disable-smooth-scrolling --disable-d3d11 --disable-accelerated-2d-canvas"
               $DiscordLnk.Save()
           }
           
-          # OBS Studio
+          # OBS
           $OBSLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\OBS Studio.lnk")
           $OBSLnk.TargetPath = "C:\Program Files\obs-studio\bin\64bit\obs64.exe"
           $OBSLnk.WorkingDirectory = "C:\Program Files\obs-studio\bin\64bit"
@@ -144,19 +137,9 @@ jobs:
           $RarLnk.TargetPath = "C:\Program Files\WinRAR\WinRAR.exe"
           $RarLnk.Save()
           
-          # --- 5. OBS NOTE ---
-          $NotePath = "C:\Users\Public\Desktop\OBS_Settings.txt"
-          $NoteContent = @"
-          OBS Resolution Settings
-          ====================================
-          1. 720p (HD) - Best: 1280x720
-          2. 480p (Fast): 854x480
-          "@
-          Set-Content -Path $NotePath -Value $NoteContent
-          
-          Write-Host "Installation Complete."
+          Write-Host "Apps Installed & Optimized."
 
-      - name: Start Bore & Maintain Connection
+      - name: Start Bore & Active Priority Manager
         run: |
           # Download Bore
           Invoke-WebRequest -Uri "https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-pc-windows-msvc.zip" -OutFile "bore.zip"
@@ -167,7 +150,6 @@ jobs:
           
           Write-Host "Bore started. Scanning for address..."
           
-          # Find Address
           $address = $null
           $i = 0
           while ($i -lt 150) {
@@ -188,15 +170,32 @@ jobs:
              exit 1
           }
           
-          # Display Credentials
           Write-Host "`n=== RDP ACCESS ==="
           Write-Host "Address: $address"
           Write-Host "Username: RDP"
           Write-Host "Password: $(echo $env:RDP_CREDS)"
           Write-Host "==================`n"
           
-          # Keep Alive Loop
+          # --- THE PRIORITY RESTORATION LOOP ---
+          # Kept alive to fix mouse lag actively
+          Write-Host "Starting Active Priority Manager for smooth mouse..."
           while ($true) {
-              Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C to terminate"
-              Start-Sleep -Seconds 300
+              # 1. Boost Desktop Window Manager (Fixes Mouse Lag)
+              $dwm = Get-Process -Name "dwm" -ErrorAction SilentlyContinue
+              if ($dwm) { 
+                  if ($dwm.PriorityClass -ne "RealTime") { 
+                      $dwm.PriorityClass = "RealTime" 
+                  }
+              }
+
+              # 2. Keep Discord at High (Prevents Stream Lag)
+              $discord = Get-Process -Name "Discord" -ErrorAction SilentlyContinue
+              if ($discord) {
+                  foreach ($proc in $discord) {
+                      if ($proc.PriorityClass -ne "High") {
+                          $proc.PriorityClass = "High"
+                      }
+                  }
+              }
+              Start-Sleep -Seconds 10
           }
