@@ -77,7 +77,7 @@ jobs:
           
           # --- 2. DISCORD AUTO-INSTALL (LATEST) ---
           Write-Host "Downloading latest Discord..."
-          $DiscordUrl = "https://discord.com/api/download?platform=win"
+          $DiscordUrl = "[https://discord.com/api/download?platform=win](https://discord.com/api/download?platform=win)"
           Invoke-WebRequest -Uri $DiscordUrl -OutFile "DiscordSetup.exe"
           
           Write-Host "Installing Discord..."
@@ -142,7 +142,7 @@ jobs:
       - name: Start Bore & Active Priority Manager
         run: |
           # Download Bore
-          Invoke-WebRequest -Uri "https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-pc-windows-msvc.zip" -OutFile "bore.zip"
+          Invoke-WebRequest -Uri "[https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-pc-windows-msvc.zip](https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-pc-windows-msvc.zip)" -OutFile "bore.zip"
           Expand-Archive bore.zip -DestinationPath .
           
           # Start Bore
