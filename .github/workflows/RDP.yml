@@ -125,9 +125,6 @@ jobs:
           $BraveLnk.TargetPath = "C:\BraveSoftware\Brave-Browser\Application\brave.exe"
           $BraveLnk.Save()
           
-          # --- 5. RESOLUTION SCRIPT ---
-          Set-Content -Path "C:\Users\Public\Desktop\Force_720p.bat" -Value "qres /x:1280 /y:720"
-          
           Write-Host "Install Complete."
 
       - name: Start Bore & Priority Loop
@@ -157,10 +154,18 @@ jobs:
           Write-Host "Password: $(echo $env:RDP_CREDS)"
           Write-Host "==================`n"
 
-          # Force Resolution (Fixed Path Issue)
-          qres /x:1280 /y:720
+          # --- FORCE RESOLUTION (FIXED) ---
+          # We search for the tool manually since the path isn't registered yet
+          $QResPath = Get-ChildItem -Path "C:\ProgramData\chocolatey" -Recurse -Filter "QRes.exe" | Select-Object -ExpandProperty FullName -First 1
+          
+          if ($QResPath) {
+              Write-Host "Found QRes at: $QResPath"
+              & $QResPath /x:1280 /y:720
+          } else {
+              Write-Warning "QRes tool not found. Resolution might be high."
+          }
 
-          # Active Mouse Fix Loop
+          # --- Active Mouse Fix Loop ---
           Write-Host "Starting Priority Manager..."
           while ($true) {
               $dwm = Get-Process -Name "dwm" -ErrorAction SilentlyContinue
