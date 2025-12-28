@@ -1,4 +1,4 @@
-name: RDP Performance Mode 720p Service Killer
+name: RDP (Ultimate: All Apps + Lag Fix + 720p)
 
 on:
   workflow_dispatch:
@@ -12,21 +12,17 @@ jobs:
       - name: Configure Core Settings & 720p Prep
         run: |
           # --- 1. MOUSE & VISUAL FIXES ---
-          # Disable Mouse Shadows & Pointer Effects
           Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name "UserPreferencesMask" -Type Binary -Value ([byte[]](0x90,0x12,0x03,0x80,0x10,0x00,0x00,0x00)) -Force
           Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name "MenuShowDelay" -Value 0 -Force
           Set-ItemProperty -Path 'HKCU:\Control Panel\Mouse' -Name "MouseHoverTime" -Value 0 -Force
-          
-          # Disable Visual Effects
           Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects' -Name "VisualFXSetting" -Value 2 -Force
 
-          # --- 2. KILL USELESS BACKGROUND SERVICES (Frees CPU) ---
-          Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue   # Printer (Useless)
-          Stop-Service -Name "wuauserv" -Force -ErrorAction SilentlyContinue  # Windows Update (Heavy)
-          Stop-Service -Name "Themes" -Force -ErrorAction SilentlyContinue    # Visual Themes
-          Stop-Service -Name "SysMain" -Force -ErrorAction SilentlyContinue   # Superfetch
-          
-          # --- 3. NETWORK & RDP SETTINGS ---
+          # --- 2. KILL BACKGROUND SERVICES ---
+          Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
+          Stop-Service -Name "wuauserv" -Force -ErrorAction SilentlyContinue
+          Stop-Service -Name "Themes" -Force -ErrorAction SilentlyContinue
+
+          # --- 3. RDP & NETWORK SETTINGS ---
           Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile' -Name "NetworkThrottlingIndex" -Value 0xffffffff -Force
           Set-Service -Name Audiosrv -StartupType Automatic
           Start-Service -Name Audiosrv
@@ -37,7 +33,7 @@ jobs:
           Get-ScheduledTask -TaskName ServerManager | Disable-ScheduledTask
           Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\ServerManager' -Name DoNotOpenServerManagerAtLogon -Value 1 -Force
 
-          # Firewall & Security
+          # Firewall
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
           netsh advfirewall firewall delete rule name="RDP-Tailscale"
@@ -45,32 +41,23 @@ jobs:
 
           Restart-Service -Name TermService -Force
 
-      - name: Create RDP User with Secret Password
+      - name: Create RDP User
         env:
           MY_SECRET_PASS: ${{ secrets.PASS }}
         run: |
-          if (-not $env:MY_SECRET_PASS) {
-              Write-Error "Error: Secret 'PASS' is missing. Add it in Repository Settings."
-              exit 1
-          }
-
-          $password = $env:MY_SECRET_PASS
-          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          
+          if (-not $env:MY_SECRET_PASS) { Write-Error "Secret 'PASS' is missing!"; exit 1 }
+          $securePass = ConvertTo-SecureString $env:MY_SECRET_PASS -AsPlainText -Force
           New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
           Add-LocalGroupMember -Group "Administrators" -Member "RDP"
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
-          
           echo "RDP_CREDS=User: RDP | Password: (Hidden)" >> $env:GITHUB_ENV
 
-      - name: Install Apps, QRes & Set 720p
+      - name: Install All Apps & Fix Discord
         run: |
-          Write-Host "Installing Apps & Resolution Tool..."
+          Write-Host "Installing All Apps..."
           
-          # --- 1. INSTALL QRES (Resolution Changer) ---
+          # --- 1. INSTALL ESSENTIALS (RESTORED ALL APPS) ---
           choco install qres -y --no-progress
-          
-          # --- 2. STANDARD APPS ---
           choco install vb-cable -y --no-progress --ignore-checksums
           choco install winrar -y --no-progress
           choco install googlechrome -y --no-progress --ignore-checksums
@@ -79,46 +66,54 @@ jobs:
           choco install ffmpeg -y --no-progress
           choco install captura -y --no-progress
           
-          # --- 3. DISCORD AUTO-INSTALL (LATEST) ---
-          Write-Host "Downloading latest Discord..."
-          $DiscordUrl = "[https://discord.com/api/download?platform=win](https://discord.com/api/download?platform=win)"
-          Invoke-WebRequest -Uri $DiscordUrl -OutFile "DiscordSetup.exe"
+          # --- 2. DISCORD DIRECT DOWNLOAD (FIXED) ---
+          Write-Host "Downloading Discord..."
+          # Hardcoded Link to fix the 'Invalid URI' error
+          Invoke-WebRequest -Uri "https://discord.com/api/download?platform=win" -OutFile "DiscordSetup.exe"
+          
+          Write-Host "Installing Discord..."
           Start-Process -FilePath ".\DiscordSetup.exe"
-          Start-Sleep -Seconds 35
+          Start-Sleep -Seconds 40
           Stop-Process -Name "Discord" -Force -ErrorAction SilentlyContinue
           Stop-Process -Name "Update" -Force -ErrorAction SilentlyContinue
 
-          # --- 4. MOVE & FIX FOLDERS ---
+          # --- 3. FIX FOLDERS ---
           $BraveAdmin = "C:\Users\runneradmin\AppData\Local\BraveSoftware"
           if (Test-Path $BraveAdmin) { Copy-Item -Path $BraveAdmin -Destination "C:\" -Recurse -Force }
-
+          
           $DiscordAdmin = "C:\Users\runneradmin\AppData\Local\Discord"
           if (Test-Path $DiscordAdmin) { Copy-Item -Path $DiscordAdmin -Destination "C:\" -Recurse -Force }
-          
-          $CapLoc1 = "C:\Users\runneradmin\AppData\Local\Captura"
-          if (Test-Path $CapLoc1) {
-              Copy-Item -Path $CapLoc1 -Destination "C:\" -Recurse -Force
-              Rename-Item -Path "C:\Captura" -NewName "Captura_App" -ErrorAction SilentlyContinue
-              Rename-Item -Path "C:\Captura_App" -NewName "Captura"
-          }
-          
-          # --- 5. CREATE SHORTCUTS ---
+
+          $CapLoc = "C:\Users\runneradmin\AppData\Local\Captura"
+          if (Test-Path $CapLoc) { Copy-Item -Path $CapLoc -Destination "C:\Captura" -Recurse -Force }
+
+          # --- 4. SHORTCUTS (LAG FIX) ---
           $WshShell = New-Object -comObject WScript.Shell
           
-          # Brave
-          $BraveLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\Brave.lnk")
-          $BraveLnk.TargetPath = "C:\BraveSoftware\Brave-Browser\Application\brave.exe"
-          $BraveLnk.Save()
-
           # Discord (Extreme Performance Flags)
           $DiscordExe = Get-ChildItem -Path "C:\Discord" -Recurse -Filter "Discord.exe" | Select-Object -First 1
           if ($DiscordExe) {
               $DiscordLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\Discord.lnk")
               $DiscordLnk.TargetPath = $DiscordExe.FullName
-              # Disable all visual candy
-              $DiscordLnk.Arguments = "--disable-gpu --disable-gpu-compositing --disable-smooth-scrolling --disable-d3d11 --disable-accelerated-2d-canvas --disable-renderer-backgrounding"
+              $DiscordLnk.Arguments = "--disable-gpu --disable-gpu-compositing --disable-smooth-scrolling --disable-d3d11 --disable-accelerated-2d-canvas"
               $DiscordLnk.Save()
           }
+
+          # Chrome
+          $ChromeLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\Google Chrome.lnk")
+          $ChromeLnk.TargetPath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+          $ChromeLnk.Save()
+
+          # WinRAR
+          $RarLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\WinRAR.lnk")
+          $RarLnk.TargetPath = "C:\Program Files\WinRAR\WinRAR.exe"
+          $RarLnk.Save()
+
+          # Captura
+          $CapturaLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\Captura.lnk")
+          $CapturaLnk.TargetPath = "C:\Captura\Captura.exe"
+          $CapturaLnk.WorkingDirectory = "C:\Captura"
+          $CapturaLnk.Save()
           
           # OBS
           $OBSLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\OBS Studio.lnk")
@@ -126,85 +121,57 @@ jobs:
           $OBSLnk.WorkingDirectory = "C:\Program Files\obs-studio\bin\64bit"
           $OBSLnk.Save()
           
-          # Captura
-          $CapturaLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\Captura.lnk")
-          $CapturaLnk.TargetPath = "C:\Captura\Captura.exe"
-          $CapturaLnk.WorkingDirectory = "C:\Captura"
-          $CapturaLnk.Save()
+          # Brave
+          $BraveLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\Brave.lnk")
+          $BraveLnk.TargetPath = "C:\BraveSoftware\Brave-Browser\Application\brave.exe"
+          $BraveLnk.Save()
           
-          # --- 6. CREATE 'SET 720P' SCRIPT ON DESKTOP ---
-          # We create a double-clickable script to force resolution if it resets
-          $ResScript = "C:\Users\Public\Desktop\Force_720p.bat"
-          Set-Content -Path $ResScript -Value "QRes.exe /x:1280 /y:720"
+          # --- 5. RESOLUTION SCRIPT ---
+          Set-Content -Path "C:\Users\Public\Desktop\Force_720p.bat" -Value "QRes.exe /x:1280 /y:720"
+          
+          Write-Host "Install Complete."
 
-          Write-Host "Apps Installed & Optimized."
-
-      - name: Start Bore & Active Optimization
+      - name: Start Bore & Priority Loop
         run: |
-          # Download Bore
-          Invoke-WebRequest -Uri "[https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-pc-windows-msvc.zip](https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-pc-windows-msvc.zip)" -OutFile "bore.zip"
+          Invoke-WebRequest -Uri "https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-pc-windows-msvc.zip" -OutFile "bore.zip"
           Expand-Archive bore.zip -DestinationPath .
-          
-          # Start Bore
           Start-Process -FilePath ".\bore.exe" -ArgumentList "local 3389 --to bore.pub" -RedirectStandardOutput "bore.log" -PassThru
           
-          Write-Host "Bore started. Scanning for address..."
-          
+          Write-Host "Scanning for address..."
           $address = $null
           $i = 0
           while ($i -lt 150) {
               if (Test-Path "bore.log") {
                   $content = Get-Content "bore.log"
                   $match = $content | Select-String "listening at (bore.pub:[0-9]+)"
-                  if ($match) {
-                      $address = $match.Matches.Groups[1].Value
-                      break
-                  }
+                  if ($match) { $address = $match.Matches.Groups[1].Value; break }
               }
               Start-Sleep -Seconds 2
               $i++
           }
           
-          if (-not $address) {
-             Write-Error "Failed to get Bore address."
-             exit 1
-          }
+          if (-not $address) { Write-Error "Bore failed"; exit 1 }
           
           Write-Host "`n=== RDP ACCESS ==="
           Write-Host "Address: $address"
           Write-Host "Username: RDP"
           Write-Host "Password: $(echo $env:RDP_CREDS)"
           Write-Host "==================`n"
-          
-          # --- CRITICAL: FORCE 720P RESOLUTION ---
-          # We try to force it here, but RDP might override it on login.
-          # The user might need to run the 'Force_720p.bat' on the desktop.
-          Write-Host "Attempting to set resolution to 1280x720..."
-          & "C:\ProgramData\chocolatey\bin\QRes.exe" /x:1280 /y:720
-          
-          # --- THE PRIORITY RESTORATION LOOP ---
-          Write-Host "Starting Active Priority Manager..."
-          while ($true) {
-              # 1. Force Mouse/Desktop to REALTIME Priority
-              $dwm = Get-Process -Name "dwm" -ErrorAction SilentlyContinue
-              if ($dwm) { 
-                  if ($dwm.PriorityClass -ne "RealTime") { 
-                      $dwm.PriorityClass = "RealTime" 
-                  }
-              }
 
-              # 2. Keep Discord at HIGH
+          # Force Resolution once on startup
+          & "C:\ProgramData\chocolatey\bin\QRes.exe" /x:1280 /y:720
+
+          # Active Mouse Fix Loop
+          Write-Host "Starting Priority Manager..."
+          while ($true) {
+              $dwm = Get-Process -Name "dwm" -ErrorAction SilentlyContinue
+              if ($dwm) { if ($dwm.PriorityClass -ne "RealTime") { $dwm.PriorityClass = "RealTime" } }
+              
               $discord = Get-Process -Name "Discord" -ErrorAction SilentlyContinue
-              if ($discord) {
+              if ($discord) { 
                   foreach ($proc in $discord) {
-                      if ($proc.PriorityClass -ne "High") {
-                          $proc.PriorityClass = "High"
-                      }
+                      if ($proc.PriorityClass -ne "High") { $proc.PriorityClass = "High" }
                   }
               }
-              
-              # 3. Ensure we stay at 720p (Optional check)
-              # If you feel the screen is too big/laggy, double click 'Force_720p.bat' on desktop
-              
               Start-Sleep -Seconds 10
           }
