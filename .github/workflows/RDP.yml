@@ -1,4 +1,4 @@
-name: RDP Ultimate - All Apps - Lag Fix - 720p
+name: RDP (Bore Stable + Apps + Discord + OBS + Note + Captura Fix)
 
 on:
   workflow_dispatch:
@@ -9,173 +9,202 @@ jobs:
     timeout-minutes: 3600
 
     steps:
-      - name: Configure Core Settings & 720p Prep
+      - name: Configure Core RDP Settings
         run: |
-          # --- 1. MOUSE & VISUAL FIXES ---
-          Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name "UserPreferencesMask" -Type Binary -Value ([byte[]](0x90,0x12,0x03,0x80,0x10,0x00,0x00,0x00)) -Force
-          Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name "MenuShowDelay" -Value 0 -Force
-          Set-ItemProperty -Path 'HKCU:\Control Panel\Mouse' -Name "MouseHoverTime" -Value 0 -Force
-          Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects' -Name "VisualFXSetting" -Value 2 -Force
-
-          # --- 2. KILL BACKGROUND SERVICES ---
-          Stop-Service -Name "Spooler" -Force -ErrorAction SilentlyContinue
-          Stop-Service -Name "wuauserv" -Force -ErrorAction SilentlyContinue
-          Stop-Service -Name "Themes" -Force -ErrorAction SilentlyContinue
-
-          # --- 3. RDP & NETWORK SETTINGS ---
-          Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile' -Name "NetworkThrottlingIndex" -Value 0xffffffff -Force
+          # --- AUDIO & SESSION FIXES START HERE ---
           Set-Service -Name Audiosrv -StartupType Automatic
           Start-Service -Name Audiosrv
           Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -Name "fDisableAudioCapture" -Value 0 -Force
+          # --- ADD THIS LINE TO KEEP SESSION ACTIVE IN BACKGROUND ---
           Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -Name "MaxDisconnectionTime" -Value 0 -Force
-          
-          # Disable Server Manager
-          Get-ScheduledTask -TaskName ServerManager | Disable-ScheduledTask
-          Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\ServerManager' -Name DoNotOpenServerManagerAtLogon -Value 1 -Force
+          # --- FIXES END HERE ---
 
-          # Firewall
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+          # Enable Remote Desktop and disable Network Level Authentication (if needed)
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
+                             -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+                             -Name "UserAuthentication" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+                             -Name "SecurityLayer" -Value 0 -Force
+
+          # Remove any existing rule with the same name to avoid duplication
           netsh advfirewall firewall delete rule name="RDP-Tailscale"
-          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
+          
+          # For testing, allow any incoming connection on port 3389
+          netsh advfirewall firewall add rule name="RDP-Tailscale" `
+            dir=in action=allow protocol=TCP localport=3389
 
+          # (Optional) Restart the Remote Desktop service to ensure changes take effect
           Restart-Service -Name TermService -Force
 
-      - name: Create RDP User
+      - name: Create RDP User with Secure Password
         env:
           MY_SECRET_PASS: ${{ secrets.PASS }}
         run: |
-          if (-not $env:MY_SECRET_PASS) { Write-Error "Secret 'PASS' is missing!"; exit 1 }
-          $securePass = ConvertTo-SecureString $env:MY_SECRET_PASS -AsPlainText -Force
+          # Check if secret exists
+          if (-not $env:MY_SECRET_PASS) {
+              Write-Error "Error: Secret 'PASS' is empty or missing. Please add it in Repository Settings."
+              exit 1
+          }
+
+          # Use the Secret Password
+          $password = $env:MY_SECRET_PASS
+          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          
           New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
           Add-LocalGroupMember -Group "Administrators" -Member "RDP"
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
-          echo "RDP_CREDS=User: RDP | Password: (Hidden)" >> $env:GITHUB_ENV
-
-      - name: Install All Apps & Fix Discord
-        run: |
-          Write-Host "Installing All Apps..."
           
-          # --- 1. INSTALL ESSENTIALS ---
-          choco install qres -y --no-progress
+          # We set the env variable to (Hidden) so it doesn't show in logs later
+          echo "RDP_CREDS=User: RDP | Password: (Hidden - Check your Secrets)" >> $env:GITHUB_ENV
+          
+          if (-not (Get-LocalUser -Name "RDP")) {
+              Write-Error "User creation failed"
+              exit 1
+          }
+
+      - name: Install Apps & Create Note
+        run: |
+          Write-Host "Installing Apps..."
+          
+          # 0. INSTALL AUDIO DRIVER (Add VB-Cable for Screen Recording Audio)
           choco install vb-cable -y --no-progress --ignore-checksums
+
+          # 1. Install via Chocolatey
           choco install winrar -y --no-progress
           choco install googlechrome -y --no-progress --ignore-checksums
           choco install brave -y --no-progress
+          choco install discord -y --no-progress
           choco install obs-studio -y --no-progress
+          # ADDED: FFmpeg and Captura
           choco install ffmpeg -y --no-progress
           choco install captura -y --no-progress
           
-          # --- 2. DISCORD DIRECT DOWNLOAD ---
-          Write-Host "Downloading Discord..."
-          Invoke-WebRequest -Uri "https://discord.com/api/download?platform=win" -OutFile "DiscordSetup.exe"
-          
-          Write-Host "Installing Discord..."
-          Start-Process -FilePath ".\DiscordSetup.exe"
-          Start-Sleep -Seconds 40
-          Stop-Process -Name "Discord" -Force -ErrorAction SilentlyContinue
-          Stop-Process -Name "Update" -Force -ErrorAction SilentlyContinue
-
-          # --- 3. FIX FOLDERS ---
+          # 2. FIX BRAVE: Move to Public Folder
           $BraveAdmin = "C:\Users\runneradmin\AppData\Local\BraveSoftware"
-          if (Test-Path $BraveAdmin) { Copy-Item -Path $BraveAdmin -Destination "C:\" -Recurse -Force }
-          
+          if (Test-Path $BraveAdmin) {
+              Copy-Item -Path $BraveAdmin -Destination "C:\" -Recurse -Force
+          }
+
+          # 3. FIX DISCORD: Move to Public Folder
           $DiscordAdmin = "C:\Users\runneradmin\AppData\Local\Discord"
-          if (Test-Path $DiscordAdmin) { Copy-Item -Path $DiscordAdmin -Destination "C:\" -Recurse -Force }
-
-          $CapLoc = "C:\Users\runneradmin\AppData\Local\Captura"
-          if (Test-Path $CapLoc) { Copy-Item -Path $CapLoc -Destination "C:\Captura" -Recurse -Force }
-
-          # --- 4. SHORTCUTS ---
+          if (Test-Path $DiscordAdmin) {
+              Copy-Item -Path $DiscordAdmin -Destination "C:\" -Recurse -Force
+          }
+          
+          # 4. FIX CAPTURA: Find and Move to Public Folder (Solves "Missing Shortcut")
+          # Check AppData location
+          $CapLoc1 = "C:\Users\runneradmin\AppData\Local\Captura"
+          # Check Chocolatey Tools location (Common for portable apps)
+          $CapLoc2 = "C:\ProgramData\chocolatey\lib\captura\tools"
+          
+          if (Test-Path $CapLoc1) {
+              Copy-Item -Path $CapLoc1 -Destination "C:\" -Recurse -Force
+              Rename-Item -Path "C:\Captura" -NewName "Captura_App" -ErrorAction SilentlyContinue # Prevent conflict
+              Rename-Item -Path "C:\Captura_App" -NewName "Captura"
+          }
+          elseif (Test-Path $CapLoc2) {
+              Copy-Item -Path $CapLoc2 -Destination "C:\Captura" -Recurse -Force
+          }
+          
+          # 5. Create Desktop Shortcuts
           $WshShell = New-Object -comObject WScript.Shell
           
-          # Discord (Extreme Performance Flags)
+          # Brave Shortcut
+          $BraveLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\Brave.lnk")
+          $BraveLnk.TargetPath = "C:\BraveSoftware\Brave-Browser\Application\brave.exe"
+          $BraveLnk.Save()
+
+          # Discord Shortcut
           $DiscordExe = Get-ChildItem -Path "C:\Discord" -Recurse -Filter "Discord.exe" | Select-Object -First 1
           if ($DiscordExe) {
               $DiscordLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\Discord.lnk")
               $DiscordLnk.TargetPath = $DiscordExe.FullName
-              $DiscordLnk.Arguments = "--disable-gpu --disable-gpu-compositing --disable-smooth-scrolling --disable-d3d11 --disable-accelerated-2d-canvas"
               $DiscordLnk.Save()
           }
-
-          # Chrome
-          $ChromeLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\Google Chrome.lnk")
-          $ChromeLnk.TargetPath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-          $ChromeLnk.Save()
-
-          # WinRAR
-          $RarLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\WinRAR.lnk")
-          $RarLnk.TargetPath = "C:\Program Files\WinRAR\WinRAR.exe"
-          $RarLnk.Save()
-
-          # Captura
-          $CapturaLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\Captura.lnk")
-          $CapturaLnk.TargetPath = "C:\Captura\Captura.exe"
-          $CapturaLnk.WorkingDirectory = "C:\Captura"
-          $CapturaLnk.Save()
           
-          # OBS
+          # OBS Shortcut
           $OBSLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\OBS Studio.lnk")
           $OBSLnk.TargetPath = "C:\Program Files\obs-studio\bin\64bit\obs64.exe"
           $OBSLnk.WorkingDirectory = "C:\Program Files\obs-studio\bin\64bit"
           $OBSLnk.Save()
           
-          # Brave
-          $BraveLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\Brave.lnk")
-          $BraveLnk.TargetPath = "C:\BraveSoftware\Brave-Browser\Application\brave.exe"
-          $BraveLnk.Save()
-          
-          Write-Host "Install Complete."
+          # ADDED: Captura Shortcut (Pointing to the Fixed Location)
+          $CapturaLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\Captura.lnk")
+          $CapturaLnk.TargetPath = "C:\Captura\Captura.exe"
+          $CapturaLnk.WorkingDirectory = "C:\Captura"
+          $CapturaLnk.Save()
 
-      - name: Start Bore & Priority Loop
+          # WinRAR Shortcut
+          $RarLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\WinRAR.lnk")
+          $RarLnk.TargetPath = "C:\Program Files\WinRAR\WinRAR.exe"
+          $RarLnk.Save()
+          
+          # 6. CREATE OBS SETTINGS NOTE ON DESKTOP
+          $NotePath = "C:\Users\Public\Desktop\OBS_Settings.txt"
+          $NoteContent = @"
+          OBS Resolution Settings (16:9 Ratio)
+          ====================================
+          
+          Use these settings in Settings -> Video
+          
+          1. 720p (HD) - Best Quality
+             - Base (Canvas): 1280x720
+             - Output (Scaled): 1280x720
+             
+          2. 480p (Standard) - Good Speed
+             - Base (Canvas): 854x480
+             - Output (Scaled): 854x480
+             
+          3. 360p (Low) - Fastest / Lowest Lag
+             - Base (Canvas): 640x360
+             - Output (Scaled): 640x360
+          "@
+          Set-Content -Path $NotePath -Value $NoteContent
+          
+          Write-Host "Installation, Shortcuts & Note Complete."
+
+      - name: Start Bore & Maintain Connection
         run: |
+          # 1. Download Bore
           Invoke-WebRequest -Uri "https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-pc-windows-msvc.zip" -OutFile "bore.zip"
           Expand-Archive bore.zip -DestinationPath .
+          
+          # 2. Start Bore in Background (Same Step to prevent killing)
           Start-Process -FilePath ".\bore.exe" -ArgumentList "local 3389 --to bore.pub" -RedirectStandardOutput "bore.log" -PassThru
           
-          Write-Host "Scanning for address..."
+          Write-Host "Bore started. Scanning for address..."
+          
+          # 3. Find Address
           $address = $null
           $i = 0
-          while ($i -lt 150) {
+          while ($i -lt 150) { # Wait up to 5 mins
               if (Test-Path "bore.log") {
                   $content = Get-Content "bore.log"
                   $match = $content | Select-String "listening at (bore.pub:[0-9]+)"
-                  if ($match) { $address = $match.Matches.Groups[1].Value; break }
+                  if ($match) {
+                      $address = $match.Matches.Groups[1].Value
+                      break
+                  }
               }
               Start-Sleep -Seconds 2
               $i++
           }
           
-          if (-not $address) { Write-Error "Bore failed"; exit 1 }
+          if (-not $address) {
+             Write-Error "Failed to get Bore address."
+             exit 1
+          }
           
+          # 4. Show Details (Using your exact format)
           Write-Host "`n=== RDP ACCESS ==="
           Write-Host "Address: $address"
           Write-Host "Username: RDP"
           Write-Host "Password: $(echo $env:RDP_CREDS)"
           Write-Host "==================`n"
-
-          # --- FORCE RESOLUTION (FIXED) ---
-          # We search for the tool manually since the path isn't registered yet
-          $QResPath = Get-ChildItem -Path "C:\ProgramData\chocolatey" -Recurse -Filter "QRes.exe" | Select-Object -ExpandProperty FullName -First 1
           
-          if ($QResPath) {
-              Write-Host "Found QRes at: $QResPath"
-              & $QResPath /x:1280 /y:720
-          } else {
-              Write-Warning "QRes tool not found. Resolution might be high."
-          }
-
-          # --- Active Mouse Fix Loop ---
-          Write-Host "Starting Priority Manager..."
+          # 5. Keep runner active indefinitely
           while ($true) {
-              $dwm = Get-Process -Name "dwm" -ErrorAction SilentlyContinue
-              if ($dwm) { if ($dwm.PriorityClass -ne "RealTime") { $dwm.PriorityClass = "RealTime" } }
-              
-              $discord = Get-Process -Name "Discord" -ErrorAction SilentlyContinue
-              if ($discord) { 
-                  foreach ($proc in $discord) {
-                      if ($proc.PriorityClass -ne "High") { $proc.PriorityClass = "High" }
-                  }
-              }
-              Start-Sleep -Seconds 10
+              Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
+              Start-Sleep -Seconds 300
           }
