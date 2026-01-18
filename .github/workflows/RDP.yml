@@ -1,4 +1,4 @@
-name: RDP (Virus Test - Brave Fixed)
+name: RDP (Virus Test - 100% Fixed Shortcuts)
 
 on:
   workflow_dispatch:
@@ -11,7 +11,6 @@ jobs:
     steps:
       - name: Configure Core RDP Settings
         run: |
-          # Core RDP optimizations
           Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -Name "fDisableAudioCapture" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -Name "MaxDisconnectionTime" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
@@ -31,54 +30,60 @@ jobs:
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
           echo "RDP_CREDS=User: RDP | Password: (Hidden)" >> $env:GITHUB_ENV
 
-      - name: Install Security Tools (No Brave via Choco)
+      - name: Install Security Tools (Fixed Shortcuts)
         run: |
           Write-Host "Installing Security Suite..."
           
-          # 1. Install WinRAR & Security Apps via Chocolatey
-          # We SKIP Brave here to prevent the freeze seen in your screenshot
+          # 1. Install Tools via Chocolatey
           choco install winrar -y --no-progress
           choco install processhacker -y --no-progress
           choco install virustotaluploader -y --no-progress
           choco install sysinternals -y --no-progress
 
-          # 2. CREATE SHORTCUTS for Security Tools
+          # 2. CREATE SMART SHORTCUTS (Finds the file automatically)
           $WshShell = New-Object -comObject WScript.Shell
           
-          # Process Hacker (Task Manager replacement)
-          $PHLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\Process Hacker.lnk")
-          $PHLnk.TargetPath = "C:\Program Files\Process Hacker 2\ProcessHacker.exe"
-          $PHLnk.Save()
-          
-          # TCPView (To watch Internet Connections)
-          $TCPLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\TCPView.lnk")
-          $TCPLnk.TargetPath = "C:\ProgramData\chocolatey\lib\sysinternals\tools\Tcpview.exe"
-          $TCPLnk.Save()
+          # FUNCTION: Find Executable and Create Shortcut
+          function New-SmartShortcut ($Name, $ExeName) {
+              Write-Host "Searching for $ExeName..."
+              # Search in common folders
+              $Path = Get-ChildItem -Path "C:\Program Files", "C:\Program Files (x86)", "C:\ProgramData", "C:\Tools" -Filter $ExeName -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+              
+              if ($Path) {
+                  $Lnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\$Name.lnk")
+                  $Lnk.TargetPath = $Path.FullName
+                  $Lnk.Save()
+                  Write-Host "-> Shortcut created for $Name"
+              } else {
+                  Write-Warning "Could not find $ExeName"
+              }
+          }
 
-          # VirusTotal Uploader (Right click -> Scan)
-          $VTLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\VirusTotal Uploader.lnk")
-          $VTLnk.TargetPath = "C:\Program Files (x86)\VirusTotalUploader2\VirusTotalUploader2.exe"
-          $VTLnk.Save()
+          # Run the Smart Shortcut Creator
+          New-SmartShortcut "Process Hacker" "ProcessHacker.exe"
+          New-SmartShortcut "TCPView" "Tcpview.exe"
+          New-SmartShortcut "VirusTotal Uploader" "VirusTotalUploader2.exe"
+          
+          # WinRAR Shortcut (Standard)
+          $RarPath = "C:\Program Files\WinRAR\WinRAR.exe"
+          if (Test-Path $RarPath) {
+             $RarLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\WinRAR.lnk")
+             $RarLnk.TargetPath = $RarPath
+             $RarLnk.Save()
+          }
 
       - name: Install Brave Browser (Direct Fix)
         run: |
-          Write-Host "Downloading Brave Browser directly (Bypassing Chocolatey)..."
+          Write-Host "Downloading Brave Browser directly..."
           $Installer = "$env:TEMP\BraveSetup.exe"
-          
-          # Download the Official Online Installer from Brave.com
           Invoke-WebRequest -Uri "https://laptop-updates.brave.com/latest/winx64" -OutFile $Installer
-          
-          Write-Host "Installing Brave..."
-          # Run with /silent flag to prevent hanging
           Start-Process -FilePath $Installer -ArgumentList "/silent", "/install" -Verb RunAs -Wait
           
-          # Create Desktop Shortcut
           $WshShell = New-Object -comObject WScript.Shell
           $BraveLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\Brave.lnk")
           $BraveLnk.TargetPath = "C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"
           $BraveLnk.Save()
-          
-          Write-Host "Brave Installed Successfully."
+          Write-Host "Brave Installed."
 
       - name: Start Bore & Keep Alive
         run: |
