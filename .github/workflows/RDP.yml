@@ -1,4 +1,4 @@
-name: RDP (Fast Malware Sandbox - No Bloat)
+name: RDP (Virus Test - Brave Fixed)
 
 on:
   workflow_dispatch:
@@ -11,14 +11,12 @@ jobs:
     steps:
       - name: Configure Core RDP Settings
         run: |
-          # Disable NLA and Audio Capture restrictions (Registry changes are instant)
+          # Core RDP optimizations
           Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -Name "fDisableAudioCapture" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -Name "MaxDisconnectionTime" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
-
-          # Firewall Rule
           netsh advfirewall firewall delete rule name="RDP-Tailscale"
           netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
 
@@ -26,73 +24,61 @@ jobs:
         env:
           MY_SECRET_PASS: ${{ secrets.PASS }}
         run: |
-          if (-not $env:MY_SECRET_PASS) {
-              Write-Error "Error: Secret 'PASS' is missing."
-              exit 1
-          }
+          if (-not $env:MY_SECRET_PASS) { Write-Error "Error: Secret 'PASS' is missing."; exit 1 }
           $securePass = ConvertTo-SecureString $env:MY_SECRET_PASS -AsPlainText -Force
           New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
           Add-LocalGroupMember -Group "Administrators" -Member "RDP"
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
           echo "RDP_CREDS=User: RDP | Password: (Hidden)" >> $env:GITHUB_ENV
 
-      - name: Install Brave & Security Tools
+      - name: Install Security Tools (No Brave via Choco)
         run: |
-          Write-Host "Installing Lightweight Security Suite..."
-
-          # 1. ESSENTIALS (Fastest install flags)
-          # WinRAR (for unpacking malware)
+          Write-Host "Installing Security Suite..."
+          
+          # 1. Install WinRAR & Security Apps via Chocolatey
+          # We SKIP Brave here to prevent the freeze seen in your screenshot
           choco install winrar -y --no-progress
-          # Brave (Safe browsing)
-          choco install brave -y --no-progress
-
-          # 2. SECURITY & ANALYSIS TOOLS
-          # Process Hacker: Replaces Task Manager, shows hidden connections/processes
           choco install processhacker -y --no-progress
-          
-          # VirusTotal Uploader: Right-click check files
           choco install virustotaluploader -y --no-progress
-          
-          # Sysinternals Suite: Contains Autoruns, TCPView, ProcMon (Essential for analysis)
           choco install sysinternals -y --no-progress
 
-          # 3. CLEANUP & CONFIGURATION
-          
-          # Fix Brave Path (Move to Public for easier access)
-          $BraveAdmin = "C:\Users\runneradmin\AppData\Local\BraveSoftware"
-          if (Test-Path $BraveAdmin) {
-              Copy-Item -Path $BraveAdmin -Destination "C:\" -Recurse -Force
-          }
-
-          # 4. CREATE SHORTCUTS
+          # 2. CREATE SHORTCUTS for Security Tools
           $WshShell = New-Object -comObject WScript.Shell
           
-          # Brave Shortcut
-          $BraveLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\Brave.lnk")
-          $BraveLnk.TargetPath = "C:\BraveSoftware\Brave-Browser\Application\brave.exe"
-          $BraveLnk.Save()
-
-          # Process Hacker Shortcut
+          # Process Hacker (Task Manager replacement)
           $PHLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\Process Hacker.lnk")
           $PHLnk.TargetPath = "C:\Program Files\Process Hacker 2\ProcessHacker.exe"
           $PHLnk.Save()
           
-          # TCPView Shortcut (To see virus network connections)
+          # TCPView (To watch Internet Connections)
           $TCPLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\TCPView.lnk")
           $TCPLnk.TargetPath = "C:\ProgramData\chocolatey\lib\sysinternals\tools\Tcpview.exe"
           $TCPLnk.Save()
 
-          # Autoruns Shortcut (To see how virus starts with Windows)
-          $AutoLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\Autoruns.lnk")
-          $AutoLnk.TargetPath = "C:\ProgramData\chocolatey\lib\sysinternals\tools\Autoruns64.exe"
-          $AutoLnk.Save()
-
-          # VirusTotal Shortcut
+          # VirusTotal Uploader (Right click -> Scan)
           $VTLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\VirusTotal Uploader.lnk")
           $VTLnk.TargetPath = "C:\Program Files (x86)\VirusTotalUploader2\VirusTotalUploader2.exe"
           $VTLnk.Save()
 
-          Write-Host "Security Sandbox Ready."
+      - name: Install Brave Browser (Direct Fix)
+        run: |
+          Write-Host "Downloading Brave Browser directly (Bypassing Chocolatey)..."
+          $Installer = "$env:TEMP\BraveSetup.exe"
+          
+          # Download the Official Online Installer from Brave.com
+          Invoke-WebRequest -Uri "https://laptop-updates.brave.com/latest/winx64" -OutFile $Installer
+          
+          Write-Host "Installing Brave..."
+          # Run with /silent flag to prevent hanging
+          Start-Process -FilePath $Installer -ArgumentList "/silent", "/install" -Verb RunAs -Wait
+          
+          # Create Desktop Shortcut
+          $WshShell = New-Object -comObject WScript.Shell
+          $BraveLnk = $WshShell.CreateShortcut("C:\Users\Public\Desktop\Brave.lnk")
+          $BraveLnk.TargetPath = "C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"
+          $BraveLnk.Save()
+          
+          Write-Host "Brave Installed Successfully."
 
       - name: Start Bore & Keep Alive
         run: |
@@ -101,7 +87,7 @@ jobs:
           
           Start-Process -FilePath ".\bore.exe" -ArgumentList "local 3389 --to bore.pub" -RedirectStandardOutput "bore.log" -PassThru
           
-          Write-Host "Scanning for connection..."
+          Write-Host "Scanning for address..."
           $address = $null
           $i = 0
           while ($i -lt 150) { 
@@ -117,18 +103,12 @@ jobs:
               $i++
           }
           
-          if (-not $address) {
-             Write-Error "Failed to get Bore address."
-             exit 1
-          }
+          if (-not $address) { Write-Error "Failed to get Bore address."; exit 1 }
           
-          Write-Host "`n=== SANDBOX READY ==="
+          Write-Host "`n=== RDP ACCESS ==="
           Write-Host "Address: $address"
           Write-Host "Username: RDP"
           Write-Host "Password: $(echo $env:RDP_CREDS)"
           Write-Host "=====================`n"
           
-          while ($true) {
-              Write-Host "[$(Get-Date)] Monitoring..."
-              Start-Sleep -Seconds 300
-          }
+          while ($true) { Write-Host "Active..."; Start-Sleep -Seconds 300 }
